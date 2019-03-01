@@ -14,4 +14,8 @@
  * limitations under the License.                                                  *
  *---------------------------------------------------------------------------------*/
 
-#include <featengin/spliter.h>
+#ifndef FEATENGIN_SPLITER_H_
+#define FEATENGIN_SPLITER_H_
+
+
+#endif //
