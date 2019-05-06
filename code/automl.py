@@ -1,49 +1,36 @@
-# !/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# Create on: 2019-04-09 13:52
-# LUX et VERITAS
-
-# Import modules
-from typing import Dict, List 
+from typing import Dict, List
 
 import hyperopt
-import lightgbm as lgb 
-import numpy as np 
-import pandas as pd 
-from hyperopt import STATUS_OK, Trials, hp, space_eval, tpe 
-from sklearn.metrics import roc_auc_score 
-from sklearn.model_selection import train_test_split 
+import lightgbm as lgb
+import numpy as np
+import pandas as pd
+from hyperopt import STATUS_OK, Trials, hp, space_eval, tpe
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 
-from util import Config, log, timeit 
+from util import Config, log, timeit
 
-# Function:
+
 @timeit
 def train(X: pd.DataFrame, y: pd.Series, config: Config):
     train_lightgbm(X, y, config)
 
-# Function:
+
 @timeit
 def predict(X: pd.DataFrame, config: Config) -> List:
     preds = predict_lightgbm(X, config)
     return preds
 
-# Function:
+
 @timeit
 def validate(preds, y_path) -> np.float64:
-    score = roc_auc_score(pd.read_csv(y_path)["label"].values, preds)
+    score = roc_auc_score(pd.read_csv(y_path)['label'].values, preds)
     log("Score: {:0.4f}".format(score))
     return score
 
-# Function: train uses by lightgbm
+
 @timeit
 def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
-    """
-    Parameters:
-    X: pandas DataFrame, train data
-    y: pandas Series, train label
-    config: Config, configuration
-    """
-
     params = {
         "objective": "binary",
         "metric": "auc",
@@ -61,22 +48,19 @@ def train_lightgbm(X: pd.DataFrame, y: pd.Series, config: Config):
 
     config["model"] = lgb.train({**params, **hyperparams},
                                 train_data,
-                                500,
+                                1000,
                                 valid_data,
                                 early_stopping_rounds=30,
                                 verbose_eval=100)
 
-# Function: prediction
+
 @timeit
 def predict_lightgbm(X: pd.DataFrame, config: Config) -> List:
     return config["model"].predict(X)
 
-# Function: hyperopt_lightgbm to get hyper parameters
+
 @timeit
 def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Config):
-    """
-    """
-
     X_train, X_val, y_train, y_val = data_split(X, y, test_size=0.5)
     train_data = lgb.Dataset(X_train, label=y_train)
     valid_data = lgb.Dataset(X_val, label=y_val)
@@ -96,45 +80,34 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
     def objective(hyperparams):
         model = lgb.train({**params, **hyperparams}, train_data, 300,
                           valid_data, early_stopping_rounds=30, verbose_eval=0)
-        
+
         score = model.best_score["valid_0"][params["metric"]]
 
         # in classification, less is better
-        return {"loss": -score, "status": STATUS_OK}
+        return {'loss': -score, 'status': STATUS_OK}
 
     trials = Trials()
     best = hyperopt.fmin(fn=objective, space=space, trials=trials,
                          algo=tpe.suggest, max_evals=10, verbose=1,
                          rstate=np.random.RandomState(1))
-    
+
     hyperparams = space_eval(space, best)
     log(f"auc = {-trials.best_trial['result']['loss']:0.4f} {hyperparams}")
-
     return hyperparams
+
 
 def data_split(X: pd.DataFrame, y: pd.Series, test_size: float=0.2):
     #  -> (pd.DataFrame, pd.Series, pd.DataFrame, pd.Series):
     return train_test_split(X, y, test_size=test_size, random_state=1)
 
-# Function: sample data
+
 def data_sample(X: pd.DataFrame, y: pd.Series, nrows: int=5000):
     # -> (pd.DataFrame, pd.Series):
-    """
-    Sample data
-    Parameters:
-    X: pandas DataFrame, train data
-    y: pandas Series, train label
-    nrows: int, numbers rows
-    Returns:
-    X_sample: pandas DataFrame, sampled train data 
-    y_sample: pandas Series, sample train label
-    """
-
     if len(X) > nrows:
         X_sample = X.sample(nrows, random_state=1)
         y_sample = y[X_sample.index]
     else:
         X_sample = X
         y_sample = y
-    
+
     return X_sample, y_sample
