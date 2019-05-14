@@ -113,6 +113,5 @@ def transform_categorical_hash(df):
         df[c] = df[c].apply(lambda x: int(x))
 
     for c in [c for c in df if c.startswith(CONSTANT.MULTI_CAT_PREFIX)]:
-        df[c+"_max"] = df[c].apply(lambda x: len(x.split(",")))
-        df[c+"_num"] = df[c].apply(lambda x: int(x.split(",")[0]))
+        df[c+"_num"] = df[c].apply(lambda x: x.count(","))
         df.drop(c, axis=1, inplace=True)

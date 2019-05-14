@@ -36,6 +36,7 @@ class Model:
 
         clean_tables(Xs)
         X = merge_table(Xs, self.config)
+        del Xs
         clean_df(X)
         feature_engineer(X, self.config)
         X_train = X[X.index.str.startswith("train")]
@@ -49,5 +50,3 @@ class Model:
         result = predict(X_test, self.config)
 
         return pd.Series(result)
-        # return pd.Series()
-

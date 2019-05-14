@@ -2,6 +2,8 @@ import os
 import pickle
 import time
 from typing import Any
+import numpy as np 
+
 
 import CONSTANT
 
@@ -75,29 +77,27 @@ class Config:
 
     @staticmethod
     def aggregate_op(col):
-        import numpy as np
-
-        def my_nunique(x):
-            return x.nunique()
-
-        my_nunique.__name__ = 'nunique'
         ops = {
-            CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "max", "min"],
-            CONSTANT.CATEGORY_TYPE: ["count"],
-            # CONSTANT.MULTI_CAT_TYPE: [lambda x: ",".join(x)]
-            #  TIME_TYPE: ["max"],
-            #  MULTI_CAT_TYPE: [my_unique]
+            CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "max", "min", "std", vptp, vkurt, vskew],
+            CONSTANT.CATEGORY_TYPE: ["count", vnunique, vmax, vmin, vmean, vfval, vlval],
+            CONSTANT.MULTI_CAT_TYPE: ["count", vnunique],
+            CONSTANT.MULTI_CAT_NUM_TYPE: ["max", "mean", "min", vmax, vmin, vmean],
+            CONSTANT.TIME_NUM_TYPE: [vnunique, "max", "min", "mean", vmax, vmin, vmean, vptp],
         }
         if col.startswith(CONSTANT.NUMERICAL_PREFIX):
             return ops[CONSTANT.NUMERICAL_TYPE]
-        if col.startswith(CONSTANT.CATEGORY_PREFIX):
+        elif col.startswith(CONSTANT.CATEGORY_PREFIX):
             return ops[CONSTANT.CATEGORY_TYPE]
-        if col.startswith(CONSTANT.MULTI_CAT_PREFIX):
-            assert False, f"MultiCategory type feature's aggregate op are not supported."
+        elif col.startswith(CONSTANT.MULTI_CAT_PREFIX):
             return ops[CONSTANT.MULTI_CAT_TYPE]
-        if col.startswith(CONSTANT.TIME_PREFIX):
-            assert False, f"Time type feature's aggregate op are not implemented."
-        assert False, f"Unknown col type {col}"
+        # elif col.startswith(CONSTANT.TIME_PREFIX):
+        #     return ops[CONSTANT.TIME_TYPE]
+        elif col.startswith(CONSTANT.MULTI_CAT_NUM_PREFIX):
+            return ops[CONSTANT.MULTI_CAT_NUM_TYPE]
+        elif col.startswith(CONSTANT.TIME_NUM_PREFIX):
+            return ops[CONSTANT.TIME_NUM_TYPE]
+        else:
+            assert False, f"Unknown col type {col}"
 
     def time_left(self):
         return self["time_budget"] - (time.time() - self["start_time"])
@@ -119,3 +119,32 @@ class Config:
 
     def __repr__(self):
         return repr(self.data)
+
+# This part define many tiny functions to replace using lambda direct.
+# They all receive Seires
+def vptp(Sval):
+    return np.ptp(Sval)
+
+def vmax(Sval):
+    return Sval.value_counts().max()
+
+def vmin(Sval):
+    return Sval.value_counts().min()
+
+def vmean(Sval):
+    return Sval.value_counts().mean()
+
+def vkurt(Sval):
+    return Sval.kurt()
+
+def vskew(Sval):
+    return Sval.skew()
+
+def vnunique(Sval):
+    return Sval.nunique()
+
+def vfval(Sval):
+    return int(Sval.value_counts().index[0])
+
+def vlval(Sval):
+    return int(Sval.value_counts().index[-1])
