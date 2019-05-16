@@ -4,6 +4,8 @@ from collections import defaultdict, deque
 import copy
 import numpy as np
 import pandas as pd
+from functools import partial
+import multiprocessing as mp 
 
 import CONSTANT
 from util import Config, Timer, log, timeit
@@ -50,16 +52,18 @@ def bfs(root_name, graph, tconfig):
 @timeit
 def join(u, v, v_name, key, type_):
     if type_.split("_")[2] == 'many':
-        agg_funcs = {col: Config.aggregate_op(col) for col in v if col != key
-                     and not col.startswith(CONSTANT.TIME_PREFIX)}
         # preprocess the TIME and MULTI_CAT columns
         time_cols = [col for col in v if col.startswith(CONSTANT.TIME_PREFIX)]
         multi_cat_cols = [col for col in v if col.startswith(CONSTANT.MULTI_CAT_PREFIX)]
-        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.day).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.hour).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.minute).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.second).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
+        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.day).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_day", time_cols))))], axis=1)
+        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.hour).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_hour", time_cols))))], axis=1)
+        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.minute).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_minute", time_cols))))], axis=1)
+        v = pd.concat([v, v[time_cols].apply(lambda x: x.dt.second).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_second", time_cols))))], axis=1)
         v = pd.concat([v, v[multi_cat_cols].apply(lambda x: x.str.count(",")).rename(columns=dict(zip(multi_cat_cols, map(lambda x: f"mn_{x}", multi_cat_cols))))], axis=1)
+
+        agg_funcs = {col: Config.aggregate_op(col) for col in v if col != key
+                     and not col.startswith(CONSTANT.TIME_PREFIX)}
+
         v = v.groupby(key).agg(agg_funcs)
         v.columns = v.columns.map(lambda a:
                 f"{CONSTANT.NUMERICAL_PREFIX}{a[1].upper()}({a[0]})")
@@ -70,10 +74,26 @@ def join(u, v, v_name, key, type_):
     return u.join(v, on=key)
 
 
+# Function: Partial function
+# def eG(eGroup, aggFuncs, timeCol):
+#     origIdx = eGroup[1].index
+#     eGroup[1].index = eGroup[1][timeCol]
+#     eGroup[1].index.name = None
+#     eFeated = eGroup[1].rolling("20min").agg(aggFuncs)
+#     eFeated.index = origIdx
+#     return eGroup[1].rolling(5).agg(aggFuncs)
+
+def eOps(OpData, Gkey, Op, qRes, Ttimer):
+    Res = OpData.groupby(Gkey).rolling(5).agg(Op)
+    qRes.put(Res)
+    del OpData
+    del Res
+    Ttimer.check(f"Put {list(Op.keys())[0]}-{list(Op.values())[0][0]} in Queue")
+
 
 # Function: temporal series combination, the major function
 @timeit
-def temporal_join(u, v, v_name, key, time_col):
+def temporal_join(u, v, u_name, v_name, key, time_col, type_):
     """
     Do important things in this part. It processes the feature engineering of
     temporal series.
@@ -106,20 +126,48 @@ def temporal_join(u, v, v_name, key, time_col):
     tmp_u.sort_values(time_col, inplace=True)
     timer.check("sort")
 
-    agg_funcs = {col: Config.aggregate_op(col) for col in v if col != key
-                 and not col.startswith(CONSTANT.TIME_PREFIX)}
-
     # preprocess the TIME and MULTI_CAT columns
     time_cols = [col for col in tmp_u if col.startswith(CONSTANT.TIME_PREFIX)]
     multi_cat_cols = [col for col in tmp_u if col.startswith(CONSTANT.MULTI_CAT_PREFIX)]
-    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.day).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.hour).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.minute).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.second).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
+    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.day).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_day", time_cols))))], axis=1)
+    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.hour).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_hour", time_cols))))], axis=1)
+    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.minute).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_minute", time_cols))))], axis=1)
+    tmp_u = pd.concat([tmp_u, tmp_u[time_cols].apply(lambda x: x.dt.second).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_second", time_cols))))], axis=1)
     tmp_u = pd.concat([tmp_u, tmp_u[multi_cat_cols].apply(lambda x: x.str.count(",")).rename(columns=dict(zip(multi_cat_cols, map(lambda x: f"mn_{x}", multi_cat_cols))))], axis=1)
 
-    # TODO(etveritas): accelerate the speed of group calculation
-    tmp_u = tmp_u.groupby(rehash_key).rolling(5).agg(agg_funcs)
+    agg_funcs = {col: Config.aggregate_op(col) for col in tmp_u if col != key
+                 and col != rehash_key
+                 and not col.startswith(CONSTANT.TIME_PREFIX)
+                 and not col.startswith(CONSTANT.MULTI_CAT_NUM_PREFIX)
+                #  and not col.startswith(CONSTANT.CATEGORY_PREFIX)
+                #  and not col.startswith(CONSTANT.MULTI_CAT_PREFIX)
+                #  and not col.startswith(CONSTANT.NUMERICAL_PREFIX)
+                #  and not col.startswith(CONSTANT.TIME_NUM_PREFIX)
+                }
+
+    # TODO(etveritas): reduce the memory use, and catching the error in worker function
+    p_num = mp.cpu_count()//2
+    # chunk_num = 4
+    pool = mp.Pool(p_num)
+    queueRes = mp.Manager().Queue()
+    listOps = list()
+    for key, values in agg_funcs.items():
+        for op in values:
+            listOps.append({key: [op]})
+    print(agg_funcs)
+    # parteG = partial(eG, aggFuncs=agg_funcs)
+    # pool.map(parteG, tmp_u.groupby(rehash_key), chunksize=chunk_num)
+    log(f"Operation numbers: {len(listOps)}")
+    for Op in listOps:
+        pool.apply_async(eOps, args=(tmp_u, rehash_key, Op, queueRes, timer))
+    pool.close()
+    pool.join()
+    tmp_u = pd.DataFrame()
+    log(f"Get Operation numbers: {queueRes.qsize()}")
+    while queueRes.empty() == False:
+        tmp_u = pd.concat([tmp_u, queueRes.get()], axis=1)
+
+    # tmp_u = tmp_u.groupby(rehash_key).rolling(5).agg(agg_funcs)
     timer.check("group & rolling & agg")
 
     tmp_u.reset_index(0, drop=True, inplace=True)  # drop rehash index
@@ -146,17 +194,18 @@ def temporal_join(u, v, v_name, key, time_col):
     #     orig_u.sort_values(time_col, inplace=True)
     #     timer.check("sort u")
 
-    #     agg_funcs = {col: Config.aggregate_op(col) for col in orig_u if col != key
-    #                 and not col.startswith(CONSTANT.TIME_PREFIX)}
-
     #     # preprocess the TIME and MULTI_CAT columns
     #     time_cols = [col for col in orig_u if col.startswith(CONSTANT.TIME_PREFIX)]
     #     multi_cat_cols = [col for col in orig_u if col.startswith(CONSTANT.MULTI_CAT_PREFIX)]
-    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.day).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.hour).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.minute).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
-    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.second).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}", time_cols))))], axis=1)
+    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.day).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_day", time_cols))))], axis=1)
+    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.hour).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_hour", time_cols))))], axis=1)
+    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.minute).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_minute", time_cols))))], axis=1)
+    #     orig_u = pd.concat([orig_u, orig_u[time_cols].apply(lambda x: x.dt.second).rename(columns=dict(zip(time_cols, map(lambda x: f"tn_{x}_second", time_cols))))], axis=1)
     #     orig_u = pd.concat([orig_u, orig_u[multi_cat_cols].apply(lambda x: x.str.count(",")).rename(columns=dict(zip(multi_cat_cols, map(lambda x: f"mn_{x}", multi_cat_cols))))], axis=1)
+
+    #     agg_funcs = {col: Config.aggregate_op(col) for col in orig_u if col != key
+    #             and col != rehash_key 
+    #             and not col.startswith(CONSTANT.TIME_PREFIX)}
 
     #     # TODO(etveritas): accelerate the speed of group calculation
     #     orig_u = orig_u.groupby(rehash_key).rolling(5).agg(agg_funcs)
@@ -203,7 +252,7 @@ def dfs(u_name, config, tables, graph):
 
         if config['time_col'] in u and config['time_col'] in v:
             log(f"join {u_name} <--{type_}--t {v_name}")
-            u = temporal_join(u, v, v_name, key, config['time_col'])
+            u = temporal_join(u, v, u_name, v_name, key, config['time_col'], type_)
         else:
             log(f"join {u_name} <--{type_}--nt {v_name}")
             u = join(u, v, v_name, key, type_)

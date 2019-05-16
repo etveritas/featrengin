@@ -66,19 +66,19 @@ def hyperopt_lightgbm(X: pd.DataFrame, y: pd.Series, params: Dict, config: Confi
     valid_data = lgb.Dataset(X_val, label=y_val)
 
     space = {
-        "learning_rate": hp.loguniform("learning_rate", np.log(0.01), np.log(0.5)),
+        "learning_rate": hp.loguniform("learning_rate", np.log(0.005), np.log(0.1)),
         "max_depth": hp.choice("max_depth", [5, 10, 15, 20, 25, 30]),
-        "num_leaves": hp.choice("num_leaves", np.linspace(10, 200, 50, dtype=int)),
+        "num_leaves": hp.choice("num_leaves", np.linspace(2, 32, 31, dtype=int)),
         "feature_fraction": hp.quniform("feature_fraction", 0.5, 1.0, 0.1),
         "bagging_fraction": hp.quniform("bagging_fraction", 0.5, 1.0, 0.1),
         "bagging_freq": hp.choice("bagging_freq", np.linspace(0, 50, 10, dtype=int)),
-        "reg_alpha": hp.uniform("reg_alpha", 0, 10),
-        "reg_lambda": hp.uniform("reg_lambda", 0, 10),
-        "min_child_weight": hp.uniform('min_child_weight', 0.5, 10),
+        "reg_alpha": hp.uniform("reg_alpha", 0, 20),
+        "reg_lambda": hp.uniform("reg_lambda", 0, 20),
+        "min_child_weight": hp.uniform('min_child_weight', 0.5, 20),
     }
 
     def objective(hyperparams):
-        model = lgb.train({**params, **hyperparams}, train_data, 500,
+        model = lgb.train({**params, **hyperparams}, train_data, 1000,
                           valid_data, early_stopping_rounds=30, verbose_eval=0)
 
         score = model.best_score["valid_0"][params["metric"]]

@@ -78,11 +78,11 @@ class Config:
     @staticmethod
     def aggregate_op(col):
         ops = {
-            CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "max", "min", "std", vptp, vkurt, vskew],
-            CONSTANT.CATEGORY_TYPE: ["count", vnunique, vmax, vmin, vmean, vfval, vlval],
+            CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "max", "min", vptp],
+            CONSTANT.CATEGORY_TYPE: ["count", vnunique],
             CONSTANT.MULTI_CAT_TYPE: ["count", vnunique],
-            CONSTANT.MULTI_CAT_NUM_TYPE: ["max", "mean", "min", vmax, vmin, vmean],
-            CONSTANT.TIME_NUM_TYPE: [vnunique, "max", "min", "mean", vmax, vmin, vmean, vptp],
+            CONSTANT.MULTI_CAT_NUM_TYPE: ["sum", "max", "mean", "min"],
+            CONSTANT.TIME_NUM_TYPE: [vnunique, "max", "min", "mean"]
         }
         if col.startswith(CONSTANT.NUMERICAL_PREFIX):
             return ops[CONSTANT.NUMERICAL_TYPE]
@@ -134,6 +134,12 @@ def vmin(Sval):
 def vmean(Sval):
     return Sval.value_counts().mean()
 
+def vvkurt(Sval):
+    return Sval.value_counts().kurt()
+
+def vvskew(Sval):
+    return Sval.value_counts().skew()
+
 def vkurt(Sval):
     return Sval.kurt()
 
@@ -144,7 +150,15 @@ def vnunique(Sval):
     return Sval.nunique()
 
 def vfval(Sval):
-    return int(Sval.value_counts().index[0])
+    return float(Sval.value_counts().index[0])
 
 def vlval(Sval):
-    return int(Sval.value_counts().index[-1])
+    return float(Sval.value_counts().index[-1])
+
+
+# # History
+# CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "max", "min", vptp],
+# CONSTANT.CATEGORY_TYPE: ["count", vnunique, vmax, vmin, vmean, vfval, vlval, vvkurt, vvskew],
+# CONSTANT.MULTI_CAT_TYPE: ["count", vnunique],
+# CONSTANT.MULTI_CAT_NUM_TYPE: ["max", "mean", "min", vmax, vmin, vmean, vkurt, vskew],
+# CONSTANT.TIME_NUM_TYPE: [vnunique, "max", "min", "mean", vmax, vmin, vmean, vptp],
