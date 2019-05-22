@@ -78,11 +78,11 @@ class Config:
     @staticmethod
     def aggregate_op(col):
         ops = {
-            CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "max", "min", vptp],
-            CONSTANT.CATEGORY_TYPE: ["count", vnunique],
-            CONSTANT.MULTI_CAT_TYPE: ["count", vnunique],
+            CONSTANT.NUMERICAL_TYPE: ["mean", "sum", "max", "min"],
+            CONSTANT.CATEGORY_TYPE: ["count"],
+            CONSTANT.MULTI_CAT_TYPE: ["count"],
             CONSTANT.MULTI_CAT_NUM_TYPE: ["sum", "max", "mean", "min"],
-            CONSTANT.TIME_NUM_TYPE: [vnunique, "max", "min", "mean"]
+            CONSTANT.TIME_NUM_TYPE: ["max", "min", "mean"]
         }
         if col.startswith(CONSTANT.NUMERICAL_PREFIX):
             return ops[CONSTANT.NUMERICAL_TYPE]

@@ -1,5 +1,7 @@
 import os
+import gc
 import time
+import pickle 
 from collections import defaultdict, deque
 import copy
 import numpy as np
@@ -74,21 +76,78 @@ def join(u, v, v_name, key, type_):
     return u.join(v, on=key)
 
 
-# Function: Partial function
-# def eG(eGroup, aggFuncs, timeCol):
-#     origIdx = eGroup[1].index
-#     eGroup[1].index = eGroup[1][timeCol]
-#     eGroup[1].index.name = None
-#     eFeated = eGroup[1].rolling("20min").agg(aggFuncs)
-#     eFeated.index = origIdx
-#     return eGroup[1].rolling(5).agg(aggFuncs)
+# Function: Target function
+# def eOps(OpData, Gkey, Op, Onum, qRes):
+#     timer = Timer()
+#     fname = f"tmp_{Onum}.pkl"
+#     gra = OpData.groupby(Gkey).rolling(5).agg(Op)
+#     Res = [gra.columns.values, gra.values]
+#     qRes.put(Res)
+#     del gra
+#     del OpData
+#     gc.collect()
+#     timer.check(f"Put {list(Op.keys())[0]}-{list(Op.values())[0][0]} in Queue")
 
-def eOps(OpData, Gkey, Op, qRes, Ttimer):
-    Res = OpData.groupby(Gkey).rolling(5).agg(Op)
+
+def nprolling(tdata, window):
+    comp = np.full(tdata.shape[:-1]+(window-1, ), np.nan)
+    tdata = np.concatenate((comp, tdata), axis=-1)
+    shape = tdata.shape[:-1] + (tdata.shape[-1] - window + 1, window)
+    strides = tdata.strides + (tdata.strides[-1],)
+
+    return np.lib.stride_tricks.as_strided(tdata, shape=shape, strides=strides)
+
+def eOps(OpData, Op, qRes):
+    timer = Timer()
+    res_val = np.array([])
+    res_col = np.empty((1,), dtype=object)
+    op_key = list(Op.keys())[0]
+    op_op = list(Op.values())[0][0]
+    res_col[:] = [(op_key, op_op)]
+    for arr in OpData:
+        rollarr = nprolling(arr, 5)
+        if op_op == "count":
+            res_val = np.concatenate((res_val, np.sum(rollarr == rollarr, axis=1)))
+        elif op_op == "max":
+            res_val = np.concatenate((res_val, np.max(rollarr, axis=1)))
+        elif op_op == "min":
+            res_val = np.concatenate((res_val, np.min(rollarr, axis=1)))
+        elif op_op == "mean":
+            res_val = np.concatenate((res_val, np.mean(rollarr, axis=1)))
+        elif op_op == "sum":
+            res_val = np.concatenate((res_val, np.sum(rollarr, axis=1)))
+    res_val = res_val.reshape(-1, 1)
+    Res = [res_col, res_val]
     qRes.put(Res)
     del OpData
-    del Res
-    Ttimer.check(f"Put {list(Op.keys())[0]}-{list(Op.values())[0][0]} in Queue")
+    gc.collect()
+    timer.check(f"Put {op_key}-{op_op} in Queue")
+
+
+def eOpsS(OpData, Op):
+    timer = Timer()
+    res_val = np.array([])
+    res_col = np.empty((1,), dtype=object)
+    op_key = list(Op.keys())[0]
+    op_op = list(Op.values())[0][0]
+    res_col[:] = [(op_key, op_op)]
+    for arr in OpData:
+        rollarr = nprolling(arr, 5)
+        if op_op == "count":
+            res_val = np.concatenate((res_val, np.sum(rollarr == rollarr, axis=1)))
+        elif op_op == "max":
+            res_val = np.concatenate((res_val, np.max(rollarr, axis=1)))
+        elif op_op == "min":
+            res_val = np.concatenate((res_val, np.min(rollarr, axis=1)))
+        elif op_op == "mean":
+            res_val = np.concatenate((res_val, np.mean(rollarr, axis=1)))
+        elif op_op == "sum":
+            res_val = np.concatenate((res_val, np.sum(rollarr, axis=1)))
+    res_val = res_val.reshape(-1, 1)
+
+    timer.check(f"Done {op_key}-{op_op}")
+    return res_col, res_val
+    
 
 
 # Function: temporal series combination, the major function
@@ -138,35 +197,61 @@ def temporal_join(u, v, u_name, v_name, key, time_col, type_):
     agg_funcs = {col: Config.aggregate_op(col) for col in tmp_u if col != key
                  and col != rehash_key
                  and not col.startswith(CONSTANT.TIME_PREFIX)
-                 and not col.startswith(CONSTANT.MULTI_CAT_NUM_PREFIX)
-                #  and not col.startswith(CONSTANT.CATEGORY_PREFIX)
-                #  and not col.startswith(CONSTANT.MULTI_CAT_PREFIX)
-                #  and not col.startswith(CONSTANT.NUMERICAL_PREFIX)
-                #  and not col.startswith(CONSTANT.TIME_NUM_PREFIX)
                 }
 
-    # TODO(etveritas): reduce the memory use, and catching the error in worker function
-    p_num = mp.cpu_count()//2
-    # chunk_num = 4
-    pool = mp.Pool(p_num)
-    queueRes = mp.Manager().Queue()
+    # TODO(etveritas): reduce the memory use
+    # p_num = mp.cpu_count()//2
+    # p_num = 3
+    # pool = mp.Pool(p_num)
+    # queueRes = mp.Manager().Queue()
     listOps = list()
+    
     for key, values in agg_funcs.items():
         for op in values:
             listOps.append({key: [op]})
-    print(agg_funcs)
-    # parteG = partial(eG, aggFuncs=agg_funcs)
-    # pool.map(parteG, tmp_u.groupby(rehash_key), chunksize=chunk_num)
     log(f"Operation numbers: {len(listOps)}")
-    for Op in listOps:
-        pool.apply_async(eOps, args=(tmp_u, rehash_key, Op, queueRes, timer))
-    pool.close()
-    pool.join()
-    tmp_u = pd.DataFrame()
-    log(f"Get Operation numbers: {queueRes.qsize()}")
-    while queueRes.empty() == False:
-        tmp_u = pd.concat([tmp_u, queueRes.get()], axis=1)
 
+    scol_dict = dict()
+    tmp_u_idx = np.array([])
+    for key in agg_funcs.keys():
+        scol_dict[key] = list()
+    
+    for egroup in tmp_u.groupby(rehash_key):
+        eg_idx = np.empty((1,), dtype=object)
+        eg_idx[:] = [(egroup[0],)]
+        tmp_u_idx = np.concatenate((tmp_u_idx, eg_idx+egroup[1].index.values))
+        for key in agg_funcs.keys():
+            scol_dict[key].append(egroup[1][key].values)
+
+    for key in agg_funcs.keys():
+        scol_dict[key] = np.array(scol_dict[key])
+    timer.check("pre-rolling")
+
+    # for Op in listOps:
+    #     col = list(Op.keys())[0]
+    #     pool.apply_async(eOps, args=(scol_dict[col], Op, queueRes))
+
+    # pool.close()
+    # pool.join()
+
+    # tmp_u = pd.DataFrame()
+    # log(f"Get Operation numbers: {queueRes.qsize()}")
+    # timer.check("group & rolling & agg")
+
+
+    # ResColTup = ()
+    # ResValTup = ()
+    # while queueRes.empty() == False:
+    #     resCol, resVal = queueRes.get()
+    #     ResColTup += (resCol, )
+    #     ResValTup += (resVal, )
+
+    tmp_u = pd.DataFrame(index=pd.MultiIndex.from_tuples(tmp_u_idx))
+    for Op in listOps:
+        col = list(Op.keys())[0]
+        resCol, resVal = eOpsS(scol_dict[col], Op)
+        tmp_u[resCol[0]] = resVal
+    
     # tmp_u = tmp_u.groupby(rehash_key).rolling(5).agg(agg_funcs)
     timer.check("group & rolling & agg")
 
@@ -182,8 +267,8 @@ def temporal_join(u, v, u_name, v_name, key, time_col, type_):
 
     ret = pd.concat([u, tmp_u.loc['u']], axis=1, sort=False)
     timer.check("final concat")
-
     del tmp_u
+
 
     # if type_.split("_")[0] == 'many':
     #     orig_u = copy.deepcopy(u)
@@ -226,6 +311,7 @@ def temporal_join(u, v, u_name, v_name, key, time_col, type_):
 
 
 # Function: Using Depth-First Search to merge tables
+# TODO(etveritas): use iteration not recursion
 def dfs(u_name, config, tables, graph):
     """
     In graph, every pair of nodes(two tables) has "From" and "To", the process is 
