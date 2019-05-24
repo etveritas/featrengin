@@ -1,4 +1,5 @@
 import datetime
+import numpy as np 
 
 import CONSTANT
 from util import log, timeit
@@ -42,17 +43,17 @@ def hdmsval(df):
     df: pandas DataFrame, dataset waits for filling missing value.
     """
 
-    NumSet = [col for col in df if col.startswith(CONSTANT.NUMERICAL_PREFIX)]
-    StrSet = [col for col in df if col.startswith(CONSTANT.CATEGORY_PREFIX) or \
-              col.startswith(CONSTANT.MULTI_CAT_PREFIX)]
-    TimeSet = [col for col in df if col.startswith(CONSTANT.TIME_PREFIX)]
+    for c in [c for c in df if c.startswith(CONSTANT.NUMERICAL_PREFIX)]:
+        df[c].fillna(-1, inplace=True)
 
-    if NumSet:
-        df[NumSet] = df[NumSet].fillna(-1)
-    if StrSet:
-        df[StrSet] = df[StrSet].fillna("0")
-    if TimeSet:
-        df[TimeSet] = df[TimeSet].fillna(datetime.datetime(1970, 1, 1))
+    for c in [c for c in df if c.startswith(CONSTANT.CATEGORY_PREFIX)]:
+        df[c].fillna("0", inplace=True)
+
+    for c in [c for c in df if c.startswith(CONSTANT.TIME_PREFIX)]:
+        df[c].fillna(datetime.datetime(1970, 1, 1), inplace=True)
+
+    for c in [c for c in df if c.startswith(CONSTANT.MULTI_CAT_PREFIX)]:
+        df[c].fillna("0", inplace=True)
 
 
 # Function: handle abnormal value
@@ -102,16 +103,18 @@ def feature_engineer(df, config):
 @timeit
 def transform_datetime(df, config):
     for c in [c for c in df if c.startswith(CONSTANT.TIME_PREFIX)]:
-        df[c+"_month"] = df[c].apply(lambda x: x.month)
-        df[c+"_day"] = df[c].apply(lambda x: x.day)
+        df[c+"_minute"] = df[c].dt.minute
+        df[c+"_second"] = df[c].dt.second
+        df[c+"_microsecond"] = df[c].dt.microsecond
         df.drop(c, axis=1, inplace=True)
 
 
 @timeit
 def transform_categorical_hash(df):
-    for c in [c for c in df if c.startswith(CONSTANT.CATEGORY_PREFIX)]:
-        df[c] = df[c].apply(lambda x: int(x))
+    # for c in [c for c in df if c.startswith(CONSTANT.CATEGORY_PREFIX)]:
+    #     df[c] = df[c].apply(lambda x: int(x))
 
-    for c in [c for c in df if c.startswith(CONSTANT.MULTI_CAT_PREFIX)]:
-        df[c+"_num"] = df[c].apply(lambda x: x.count(","))
-        df.drop(c, axis=1, inplace=True)
+    # for c in [c for c in df if c.startswith(CONSTANT.MULTI_CAT_PREFIX)]:
+    #     df[c+"_num"] = df[c].apply(lambda x: x.count(","))
+    #     df.drop(c, axis=1, inplace=True)
+    pass
